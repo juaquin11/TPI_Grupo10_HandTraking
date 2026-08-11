@@ -27,11 +27,11 @@ El alcance de este proyecto comprende el diseño, desarrollo e implementación d
 
 ## Modelo de Dominio
 
-Insertar el modelo de dominio aquí.
+[Link Draw.io](https://drive.google.com/file/d/1RaGK6FoMkQtqk2qnLgeMbdfWv-yt91gS/view?usp=sharing)
 
 ## Bosquejo de Arquitectura
 
-Definir la arquitectura del sistema y como interactuan sus diferentes componentes. Utilizar el Paquete **Office** de Draw.io o similar. [Ejemplo Online]().
+[Link Bosquejo](https://mermaid.ai/app/projects/feba23e6-577e-492b-91c5-0af594166bfa/diagrams/162589bc-4361-42b8-8703-7db28afc7dd1/share/invite/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkb2N1bWVudElEIjoiMTYyNTg5YmMtNDM2MS00MmI4LTg3MDMtN2RiMjhhZmM3ZGQxIiwiYWNjZXNzIjoiRWRpdCIsImlhdCI6MTc4NjQ3MDc5Nn0.NMtJru3iOJ_CGEEzumh_VjweilgGw-EIZxYiEI71GNc?entryPoint=share-modal).
 
 ## Requerimientos
 
@@ -39,7 +39,20 @@ Definir los requerimientos del sistema.
 
 ### Funcionales
 
-Listado y descripción breve de los requerimientos funcionales.
+- **RF01 - Captura de video:** El sistema debe capturar el flujo de video de la webcam de la PC en tiempo real.
+- **RF02 - Detección de landmarks:** El sistema debe procesar cada frame con MediaPipe para extraer las coordenadas articulares de la mano del usuario.
+- **RF03 - Suavizado de movimiento:** El sistema debe aplicar un filtro (exponencial o similar) a las coordenadas detectadas para reducir el temblor antes de interpretarlas.
+- **RF04 - Reconocimiento de gestos:** El sistema debe interpretar la configuración de los landmarks suavizados para identificar gestos predefinidos (ej. pellizco para clic, mano abierta para mover cursor, dos dedos para scroll).
+- **RF05 - Movimiento del cursor:** El sistema debe trasladar la posición relativa de la mano a un movimiento proporcional del cursor en la pantalla.
+- **RF06 - Ejecución de clics:** El sistema debe soportar clic izquierdo y clic derecho mediante gestos específicos.
+- **RF07 - Scroll:** El sistema debe permitir desplazamiento vertical (scroll) mediante un gesto dedicado.
+- **RF08 - Drag & drop:** El sistema debe soportar la funcionalidad de arrastrar y soltar elementos mediante una combinación de gestos (sostener + mover + soltar).
+- **RF09 - Calibración de zona activa:** El usuario debe poder definir, a través del dashboard, el área (bounding box) dentro del cual el movimiento de la mano se traduce a movimiento del cursor.
+- **RF10 - Ajuste de suavizado:** El usuario debe poder ajustar, desde el dashboard, el nivel de filtrado aplicado al movimiento para reducir el temblor.
+- **RF11 - Reasignación de gestos:** El usuario debe poder reasignar qué acción del sistema dispara cada gesto reconocido.
+- **RF12 - Persistencia de configuración:** El sistema debe guardar el perfil de calibración del usuario (bounding box, suavizado, mapeo de gestos) para reutilizarlo en sesiones futuras.
+- **RF13 - Convivencia con periféricos físicos:** El sistema debe permitir el uso simultáneo del mouse/trackpad físico sin conflictos ni bloqueos.
+- **RF14 - Inicio/detención del servicio:** El usuario debe poder iniciar y detener el tracking desde la interfaz de la aplicación.
 
 ### No Funcionales
 
@@ -96,12 +109,19 @@ Definir que tecnologías se van a utilizar en cada capa y una breve descripción
 
 ### Capa de Datos
 
-Definir que base de datos, ORM y tecnologías se utilizaron y por qué.
-
+- **Base de datos:** SQLite.
+  - *Por qué:* al ser una aplicación de escritorio mono-usuario que corre localmente, no se necesita un motor cliente-servidor como PostgreSQL o MySQL. SQLite no requiere instalación ni proceso adicional, cumple el requisito de "base de datos SQL o NoSQL" y es ideal para persistir perfiles de calibración, historial de sesiones y configuración de usuario en un único archivo portable.
+- **ORM:** SQLAlchemy.
+  - *Por qué:* es el ORM estándar de facto en Python, permite abstraer las consultas SQL, facilita el mantenimiento (arquitectura en 3 capas) y sería sencillo migrar a otro motor de base de datos en el futuro si fuera necesario.
+  - 
 ### Capa de Negocio
 
-Definir que librerías e integraciones con terceros se utilizaron y por qué. En caso de consumir APIs, definir cúales se usaron.
+- **MediaPipe (Google):** para la detección de landmarks de la mano a partir del video de la webcam. Es la librería de referencia para tracking de manos en tiempo real, con buen rendimiento en CPU y sin necesidad de hardware especializado.
+- **OpenCV:** para la captura y preprocesamiento del flujo de video de la webcam antes de pasarlo a MediaPipe.
+- **NumPy:** para las operaciones matemáticas del filtro de suavizado (filtro exponencial / Kalman) que corrige el temblor de la mano.
+- **PyAutoGUI / pynput:** para la inyección de eventos de hardware (movimiento de cursor, clics, scroll, drag & drop) hacia el sistema operativo.
 
 ### Capa de Presentación
 
-Definir que framework se utilizó y por qué.
+- **Dashboard de administración:** se propone construirlo con un framework liviano tipo **Tkinter** (incluido en la librería estándar de Python) o **PyQt/PySide** si se requiere una interfaz más rica.
+  - *Por qué:* dado que el requisito no funcional obliga a que el sistema corra como un único archivo `app.py` sin depender de un navegador, se descarta un framework web (React, Vue, etc.) para la interfaz de escritorio, priorizando una librería nativa de Python que minimice dependencias externas y facilite el empaquetado final (ej. con PyInstaller).
