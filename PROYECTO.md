@@ -6,24 +6,24 @@ Este es un archivo que debe completarse con los datos utilizados en el TPI. Este
 
 ## Descripción del proyecto
 ### Alcance del Proyecto
-El alcance de este proyecto comprende el diseño, desarrollo e implementación de un sistema cliente-servidor en red local capaz de traducir gestos manuales en comandos de control del cursor del sistema operativo en tiempo real.
+El alcance de este proyecto comprende el diseño, desarrollo e implementación de una **aplicación de escritorio** capaz de traducir gestos manuales, capturados en tiempo real mediante la webcam de la propia computadora, en comandos de control del cursor del sistema operativo.
 
--Módulo Cliente (Edge Processing): Una aplicación móvil responsable de capturar el flujo de video y ejecutar los algoritmos de visión artificial (MediaPipe) de forma local. Su función es extraer las coordenadas articulares y traducirlas a datos lógicos de interacción sin enviar video por la red.
+- **Módulo de Captura y Visión Artificial:** Componente responsable de capturar el flujo de video desde la webcam de la PC y ejecutar los algoritmos de visión artificial (MediaPipe) para extraer las coordenadas articulares de la mano en cada frame.
 
--Módulo de Comunicación de Datos: Un protocolo de transmisión de baja latencia (basado en sockets UDP o WebSockets) para enviar los paquetes de datos de control desde el dispositivo móvil hacia la computadora anfitriona a través de una red Wi-Fi local.
+- **Módulo de Reconocimiento e Interpretación de Gestos:** Componente que analiza las coordenadas articulares extraídas y las traduce a gestos predefinidos (mover, clic izquierdo, clic derecho, scroll, drag & drop), aplicando además filtros de suavizado para reducir el temblor natural de la mano.
 
--Módulo Servidor (Daemon/Servicio): Un proceso en segundo plano en la PC anfitriona que interpreta los paquetes de red entrantes e interactúa directamente con las APIs del sistema operativo para inyectar eventos de hardware (desplazamiento del cursor, clic izquierdo, clic derecho, scroll y drag & drop).
+- **Módulo de Inyección de Eventos (Control del SO):** Componente que interactúa directamente con las APIs del sistema operativo para inyectar los eventos de hardware correspondientes (desplazamiento del cursor, clic izquierdo, clic derecho, scroll y drag & drop) a partir del gesto reconocido.
 
--Interfaz de Administración (Dashboard): Una interfaz gráfica orientada al usuario para calibrar la zona activa de movimiento (bounding box), ajustar parámetros de suavizado (filtros matemáticos para evitar el temblor) y reasignar atajos de gestos.
+- **Interfaz de Administración (Dashboard):** Interfaz gráfica de la aplicación orientada al usuario, para calibrar la zona activa de movimiento (bounding box), ajustar parámetros de suavizado (filtros matemáticos para evitar el temblor) y reasignar atajos de gestos.
 
 ### Objetivos Específicos
--Desacoplar la carga computacional: Implementar el procesamiento de imágenes mediante redes neuronales en el dispositivo cliente, liberando a la computadora anfitriona del consumo intensivo de CPU/GPU asociado al procesamiento de video.
+- **Garantizar latencia mínima:** Procesar el video de la webcam y responder con el movimiento del cursor a una frecuencia de actualización de al menos 30 cuadros por segundo, asegurando que el movimiento se perciba en tiempo real.
 
--Garantizar latencia mínima: Establecer un canal de comunicación de datos eficiente que permita una frecuencia de actualización de al menos 30 cuadros por segundo, asegurando que el movimiento del cursor se perciba en tiempo real.
+- **Asegurar la usabilidad y ergonomía:** Aplicar principios de Design Thinking para diseñar mecanismos de corrección de temblor (filtros exponenciales) y áreas de movimiento relativas, minimizando la fatiga física del usuario (Gorilla Arm Effect).
 
--Asegurar la usabilidad y ergonomía: Aplicar principios de Design Thinking para diseñar mecanismos de corrección de temblor (filtros exponenciales) y áreas de movimiento relativas, minimizando la fatiga física del usuario (Gorilla Arm Effect).
+- **Optimizar el uso de recursos locales:** Diseñar el pipeline de procesamiento (captura, detección e inyección de eventos) para que funcione de manera fluida en un equipo hogareño estándar, sin depender de hardware externo ni de conexión a red.
 
--Integración transparente con el Sistema Operativo: Construir el servicio receptor de manera que coexista sin interferencias con otros dispositivos de entrada físicos (mouse tradicional o trackpad), gestionando correctamente los permisos y llamadas al sistema.
+- **Integración transparente con el Sistema Operativo:** Construir la aplicación de manera que coexista sin interferencias con otros dispositivos de entrada físicos (mouse tradicional o trackpad), gestionando correctamente los permisos y llamadas al sistema.
 
 ## Modelo de Dominio
 
