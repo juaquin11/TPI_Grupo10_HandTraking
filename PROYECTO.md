@@ -29,6 +29,9 @@ El alcance de este proyecto comprende el diseño, desarrollo e implementación d
 
 [Link Draw.io](https://drive.google.com/file/d/1RaGK6FoMkQtqk2qnLgeMbdfWv-yt91gS/view?usp=sharing)
 
+<img width="501" height="183" alt="image" src="https://github.com/user-attachments/assets/08cc51d7-dd4e-48e5-965c-2fa7d66f4d79" />
+
+
 ## Bosquejo de Arquitectura
 
 [Link Bosquejo](https://mermaid.ai/app/projects/feba23e6-577e-492b-91c5-0af594166bfa/diagrams/162589bc-4361-42b8-8703-7db28afc7dd1/share/invite/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkb2N1bWVudElEIjoiMTYyNTg5YmMtNDM2MS00MmI4LTg3MDMtN2RiMjhhZmM3ZGQxIiwiYWNjZXNzIjoiRWRpdCIsImlhdCI6MTc4NjQ3MDc5Nn0.NMtJru3iOJ_CGEEzumh_VjweilgGw-EIZxYiEI71GNc?entryPoint=share-modal).
