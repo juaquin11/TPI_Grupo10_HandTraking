@@ -20,10 +20,10 @@ class PerfilCalibracion(Base):
     suavizado_factor = Column(Float, nullable=False, default=0.5)  # Alpha para filtro exponencial (0.1 a 1.0)
     
     # Coordenadas relativas de la zona activa (Bounding Box entre 0.0 y 1.0)
-    zona_activa_x_min = Column(Float, nullable=False, default=0.1)
-    zona_activa_y_min = Column(Float, nullable=False, default=0.1)
-    zona_activa_x_max = Column(Float, nullable=False, default=0.9)
-    zona_activa_y_max = Column(Float, nullable=False, default=0.9)
+    zona_activa_x_min = Column(Float, nullable=False, default=0.2)
+    zona_activa_y_min = Column(Float, nullable=False, default=0.2)
+    zona_activa_x_max = Column(Float, nullable=False, default=0.8)
+    zona_activa_y_max = Column(Float, nullable=False, default=0.8)
     
     es_activo = Column(Boolean, nullable=False, default=True)
 

@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Modelos de MediaPipe (se descargan automáticamente)
+models/
+*.task
+
 # C extensions
 *.so
 

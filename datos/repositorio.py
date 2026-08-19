@@ -35,23 +35,23 @@ def _crear_perfil_predeterminado(sesion):
     nuevo_perfil = PerfilCalibracion(
         nombre="Predeterminado",
         suavizado_factor=0.5,
-        zona_activa_x_min=0.1,
-        zona_activa_y_min=0.1,
-        zona_activa_x_max=0.9,
-        zona_activa_y_max=0.9,
+        zona_activa_x_min=0.2,
+        zona_activa_y_min=0.2,
+        zona_activa_x_max=0.8,
+        zona_activa_y_max=0.8,
         es_activo=True
     )
     sesion.add(nuevo_perfil)
     sesion.commit()
     sesion.refresh(nuevo_perfil)
 
-    # Gestos por defecto acordados
+    # Gestos por defecto acordados (v2: Centro de Palma + Pellizcos)
     gestos_iniciales = [
-        ConfiguracionGesto(perfil_id=nuevo_perfil.id, nombre_gesto="DOS_DEDOS", accion_sistema="MOVER_CURSOR"),
-        ConfiguracionGesto(perfil_id=nuevo_perfil.id, nombre_gesto="CLIC_INDICE", accion_sistema="CLIC_IZQUIERDO"),
-        ConfiguracionGesto(perfil_id=nuevo_perfil.id, nombre_gesto="CLIC_MEDIO", accion_sistema="CLIC_DERECHO"),
-        ConfiguracionGesto(perfil_id=nuevo_perfil.id, nombre_gesto="PELLIZCO", accion_sistema="DRAG_AND_DROP"),
-        ConfiguracionGesto(perfil_id=nuevo_perfil.id, nombre_gesto="UN_DEDO_INDICE", accion_sistema="SCROLL"),
+        ConfiguracionGesto(perfil_id=nuevo_perfil.id, nombre_gesto="MANO_ABIERTA", accion_sistema="MOVER_CURSOR"),
+        ConfiguracionGesto(perfil_id=nuevo_perfil.id, nombre_gesto="PELLIZCO_INDICE", accion_sistema="CLIC_IZQUIERDO"),
+        ConfiguracionGesto(perfil_id=nuevo_perfil.id, nombre_gesto="PELLIZCO_MEDIO", accion_sistema="CLIC_DERECHO"),
+        ConfiguracionGesto(perfil_id=nuevo_perfil.id, nombre_gesto="PELLIZCO_TRIPLE", accion_sistema="DRAG_AND_DROP"),
+        ConfiguracionGesto(perfil_id=nuevo_perfil.id, nombre_gesto="DOS_DEDOS", accion_sistema="SCROLL"),
     ]
     sesion.add_all(gestos_iniciales)
     sesion.commit()
