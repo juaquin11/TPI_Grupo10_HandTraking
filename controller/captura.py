@@ -7,6 +7,7 @@ IMPORTANTE (Checklist): Este módulo NO accede a la base de datos directamente.
 """
 
 import os
+import urllib.request
 import cv2
 import mediapipe as mp
 from mediapipe.tasks.python import BaseOptions
@@ -16,8 +17,21 @@ from mediapipe.tasks.python.vision import (
     RunningMode,
 )
 
-# Ruta al modelo descargado
+MODELO_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
 MODELO_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "hand_landmarker.task")
+
+
+def asegurar_modelo():
+    """
+    Verifica si el archivo del modelo MediaPipe existe en la carpeta models/.
+    Si no existe (ej. recién clonado en otra PC), lo descarga automáticamente.
+    """
+    if not os.path.exists(MODELO_PATH):
+        directorio = os.path.dirname(MODELO_PATH)
+        os.makedirs(directorio, exist_ok=True)
+        print("[Captura] Descargando modelo de MediaPipe (hand_landmarker.task)...")
+        urllib.request.urlretrieve(MODELO_URL, MODELO_PATH)
+        print("[Captura] Modelo descargado con éxito.")
 
 
 class CapturaMano:
@@ -37,6 +51,9 @@ class CapturaMano:
         self.id_camara = id_camara
         self.captura = None
         self._frame_timestamp = 0
+
+        # Asegurar que el archivo .task del modelo exista antes de cargarlo
+        asegurar_modelo()
 
         # Configurar el HandLandmarker con la nueva Tasks API
         opciones = HandLandmarkerOptions(
