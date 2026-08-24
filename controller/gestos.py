@@ -97,6 +97,18 @@ def obtener_estado_dedos(landmarks):
     }
 
 
+# Función _es_puno conservada como referencia (no funcionó bien en testing)
+# def _es_puno(landmarks, umbral_puno=0.10):
+#     """Detecta puño midiendo distancia de puntas al centro de palma."""
+#     centro_x, centro_y = calcular_centro_palma(landmarks)
+#     puntas = [PULGAR_PUNTA, INDICE_PUNTA, MEDIO_PUNTA, ANULAR_PUNTA, MENIQUE_PUNTA]
+#     for punta in puntas:
+#         dist = ((landmarks[punta][0] - centro_x) ** 2 + (landmarks[punta][1] - centro_y) ** 2) ** 0.5
+#         if dist > umbral_puno:
+#             return False
+#     return True
+
+
 def reconocer_gesto(landmarks, umbral_pellizco=0.06):
     """
     Analiza los landmarks de la mano y retorna el nombre del gesto detectado.
@@ -108,7 +120,8 @@ def reconocer_gesto(landmarks, umbral_pellizco=0.06):
       considerar un pellizco.
 
     Retorna:
-    - str: "PELLIZCO_INDICE", "PELLIZCO_MEDIO", "DOS_DEDOS", o "MANO_ABIERTA".
+    - str: "PELLIZCO_TRIPLE", "PELLIZCO_INDICE", "PELLIZCO_MEDIO",
+      "DOS_DEDOS", o "MANO_ABIERTA".
     """
     dedos = obtener_estado_dedos(landmarks)
 
