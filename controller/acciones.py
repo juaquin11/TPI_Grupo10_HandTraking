@@ -29,9 +29,17 @@ class ControladorMouse:
         self.ancho_pantalla = monitor.width
         self.alto_pantalla = monitor.height
 
+        # Zona Muerta (Deadzone): ignora micro-movimientos menores a este umbral en píxeles.
+        # Si la mano se movió menos de estos píxeles, se asume que es jitter de la cámara
+        # y el cursor se queda quieto. Permite apuntar a botones chicos sin temblor.
+        self.zona_muerta_px = 3
+        self._posicion_anterior = None
+
     def mover_cursor(self, x_normalizado, y_normalizado):
         """
         Mueve el cursor a una posición basada en coordenadas normalizadas [0.0, 1.0].
+        Aplica Zona Muerta (Deadzone): si el movimiento es menor al umbral en píxeles,
+        el cursor se congela en su lugar para evitar el temblor (jitter).
 
         Parámetros:
         - x_normalizado: posición X de la mano normalizada (0.0 = izquierda, 1.0 = derecha).
@@ -45,6 +53,16 @@ class ControladorMouse:
         x_pixel = max(0, min(x_pixel, self.ancho_pantalla - 1))
         y_pixel = max(0, min(y_pixel, self.alto_pantalla - 1))
 
+        # Zona Muerta: solo mover si el desplazamiento supera el umbral
+        if self._posicion_anterior is not None:
+            dx = x_pixel - self._posicion_anterior[0]
+            dy = y_pixel - self._posicion_anterior[1]
+            distancia = (dx ** 2 + dy ** 2) ** 0.5
+
+            if distancia < self.zona_muerta_px:
+                return  # Movimiento dentro de la zona muerta → congelar cursor
+
+        self._posicion_anterior = (x_pixel, y_pixel)
         self.mouse.position = (x_pixel, y_pixel)
 
     def clic_izquierdo(self):
