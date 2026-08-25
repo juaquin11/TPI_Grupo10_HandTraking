@@ -6,17 +6,12 @@ Arquitectura de 3 Capas:
 - Datos: datos/
 """
 
-from controller.motor import MotorHandTracking
+from views.dashboard import Dashboard
 
 
 def main():
-    print("=" * 50)
-    print("  HandTracking - Control del cursor con la mano")
-    print("=" * 50)
-    print()
-
-    motor = MotorHandTracking()
-    motor.iniciar(mostrar_preview=True)
+    app = Dashboard()
+    app.mainloop()
 
 
 if __name__ == "__main__":

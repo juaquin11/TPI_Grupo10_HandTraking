@@ -39,6 +39,9 @@ def _crear_perfil_predeterminado(sesion):
         zona_activa_y_min=0.2,
         zona_activa_x_max=0.8,
         zona_activa_y_max=0.8,
+        zona_muerta_px=3,
+        es_zurdo=False,
+        id_camara=0,
         es_activo=True
     )
     sesion.add(nuevo_perfil)
@@ -58,7 +61,8 @@ def _crear_perfil_predeterminado(sesion):
     return sesion.query(PerfilCalibracion).options(joinedload(PerfilCalibracion.gestos)).filter_by(id=nuevo_perfil.id).first()
 
 
-def guardar_perfil(id_perfil, nombre, suavizado, x_min, y_min, x_max, y_max):
+def guardar_perfil(id_perfil, nombre, suavizado, x_min, y_min, x_max, y_max,
+                   zona_muerta_px=3, es_zurdo=False, id_camara=0):
     """
     Actualiza los datos del perfil de calibración especificado.
     """
@@ -72,6 +76,9 @@ def guardar_perfil(id_perfil, nombre, suavizado, x_min, y_min, x_max, y_max):
             perfil.zona_activa_y_min = y_min
             perfil.zona_activa_x_max = x_max
             perfil.zona_activa_y_max = y_max
+            perfil.zona_muerta_px = zona_muerta_px
+            perfil.es_zurdo = es_zurdo
+            perfil.id_camara = id_camara
             sesion.commit()
             sesion.refresh(perfil)
         return perfil

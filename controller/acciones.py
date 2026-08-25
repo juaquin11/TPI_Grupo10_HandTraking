@@ -35,6 +35,10 @@ class ControladorMouse:
         self.zona_muerta_px = 3
         self._posicion_anterior = None
 
+    def set_zona_muerta(self, pixeles):
+        """Permite cambiar la zona muerta en tiempo real desde la UI."""
+        self.zona_muerta_px = max(0, int(pixeles))
+
     def mover_cursor(self, x_normalizado, y_normalizado):
         """
         Mueve el cursor a una posición basada en coordenadas normalizadas [0.0, 1.0].

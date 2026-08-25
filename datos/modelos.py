@@ -24,7 +24,16 @@ class PerfilCalibracion(Base):
     zona_activa_y_min = Column(Float, nullable=False, default=0.2)
     zona_activa_x_max = Column(Float, nullable=False, default=0.8)
     zona_activa_y_max = Column(Float, nullable=False, default=0.8)
-    
+
+    # Zona muerta en píxeles (ignora micro-movimientos menores a este valor)
+    zona_muerta_px = Column(Integer, nullable=False, default=3)
+
+    # Modo zurdo: si es True, invierte el eje X para zurdos
+    es_zurdo = Column(Boolean, nullable=False, default=False)
+
+    # ID de la cámara seleccionada (0 = predeterminada)
+    id_camara = Column(Integer, nullable=False, default=0)
+
     es_activo = Column(Boolean, nullable=False, default=True)
 
     # Relación con las configuraciones de gestos asignadas a este perfil

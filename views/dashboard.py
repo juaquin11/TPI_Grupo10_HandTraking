@@ -1,0 +1,439 @@
+"""
+Dashboard Principal del Sistema HandTracking.
+Interfaz gráfica construida con CustomTkinter que permite al usuario:
+- Iniciar/detener el tracking de mano.
+- Ver la preview de la cámara con landmarks en vivo.
+- Monitorear estado en tiempo real (FPS, latencia, gesto detectado).
+- Calibrar zona activa, suavizado y zona muerta.
+- Seleccionar cámara y modo zurdo/diestro.
+- Guardar el perfil de calibración en la base de datos.
+
+IMPORTANTE (Checklist):
+- Este módulo NO accede a la base de datos directamente.
+- Toda comunicación con la BD pasa por controller/ y datos/repositorio.
+"""
+
+import threading
+import cv2
+import keyboard
+from PIL import Image, ImageTk
+import customtkinter as ctk
+
+from controller.motor import MotorHandTracking
+from datos.repositorio import obtener_perfil_activo, guardar_perfil
+
+
+# Tema global de CustomTkinter
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+
+
+class Dashboard(ctk.CTk):
+    """
+    Ventana principal del Dashboard de HandTracking.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+        self.title("🖐️ HandTracking — Panel de Control")
+        self.geometry("960x720")
+        self.minsize(900, 680)
+        self.protocol("WM_DELETE_WINDOW", self._al_cerrar)
+
+        # Motor y estado
+        self.motor = None
+        self.hilo_motor = None
+        self.tracking_activo = False
+
+        # Cargar perfil actual
+        self.perfil = obtener_perfil_activo()
+
+        # Registrar atajo global Ctrl+Alt+H
+        keyboard.add_hotkey("ctrl+alt+h", self._alternar_pausa_global)
+
+        # Construir la interfaz
+        self._crear_interfaz()
+
+        # Iniciar actualización periódica de la preview
+        self._actualizar_preview()
+
+    # =========================================================================
+    # CONSTRUCCIÓN DE LA INTERFAZ
+    # =========================================================================
+
+    def _crear_interfaz(self):
+        """Construye todos los widgets del dashboard."""
+
+        # --- Layout principal: 2 columnas ---
+        self.grid_columnconfigure(0, weight=3)  # Preview (más ancho)
+        self.grid_columnconfigure(1, weight=2)  # Panel lateral
+        self.grid_rowconfigure(0, weight=1)
+
+        # ===== COLUMNA IZQUIERDA: Preview + Estado =====
+        col_izq = ctk.CTkFrame(self, corner_radius=10)
+        col_izq.grid(row=0, column=0, padx=(10, 5), pady=10, sticky="nsew")
+        col_izq.grid_rowconfigure(0, weight=1)
+        col_izq.grid_columnconfigure(0, weight=1)
+
+        # Preview de cámara
+        self.label_preview = ctk.CTkLabel(col_izq, text="Cámara no iniciada",
+                                          font=ctk.CTkFont(size=14))
+        self.label_preview.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="nsew")
+
+        # Panel de estado en vivo
+        frame_estado = ctk.CTkFrame(col_izq, corner_radius=8)
+        frame_estado.grid(row=1, column=0, padx=10, pady=(5, 10), sticky="ew")
+        frame_estado.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+
+        self.lbl_fps = ctk.CTkLabel(frame_estado, text="FPS: ---",
+                                    font=ctk.CTkFont(size=12, weight="bold"))
+        self.lbl_fps.grid(row=0, column=0, padx=5, pady=5)
+
+        self.lbl_latencia = ctk.CTkLabel(frame_estado, text="Latencia: --- ms",
+                                         font=ctk.CTkFont(size=12))
+        self.lbl_latencia.grid(row=0, column=1, padx=5, pady=5)
+
+        self.lbl_mano = ctk.CTkLabel(frame_estado, text="Mano: ❌",
+                                     font=ctk.CTkFont(size=12))
+        self.lbl_mano.grid(row=0, column=2, padx=5, pady=5)
+
+        self.lbl_gesto = ctk.CTkLabel(frame_estado, text="Gesto: ---",
+                                      font=ctk.CTkFont(size=12))
+        self.lbl_gesto.grid(row=0, column=3, padx=5, pady=5)
+
+        self.lbl_accion = ctk.CTkLabel(frame_estado, text="Acción: ---",
+                                       font=ctk.CTkFont(size=12))
+        self.lbl_accion.grid(row=0, column=4, padx=5, pady=5)
+
+        # ===== COLUMNA DERECHA: Controles y Calibración =====
+        col_der = ctk.CTkScrollableFrame(self, corner_radius=10, label_text="Panel de Control")
+        col_der.grid(row=0, column=1, padx=(5, 10), pady=10, sticky="nsew")
+        col_der.grid_columnconfigure(0, weight=1)
+
+        # --- Sección: Controles Principales ---
+        self._crear_seccion_controles(col_der)
+
+        # --- Sección: Calibración ---
+        self._crear_seccion_calibracion(col_der)
+
+        # --- Sección: Configuración ---
+        self._crear_seccion_configuracion(col_der)
+
+        # --- Botón Guardar ---
+        self.btn_guardar = ctk.CTkButton(
+            col_der, text="💾 Guardar Perfil", height=40,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#28a745", hover_color="#218838",
+            command=self._guardar_perfil
+        )
+        self.btn_guardar.grid(row=10, column=0, padx=10, pady=(15, 10), sticky="ew")
+
+    def _crear_seccion_controles(self, parent):
+        """Sección de Start/Stop, Cámara y Modo Zurdo."""
+        lbl = ctk.CTkLabel(parent, text="▶ Control del Tracking",
+                           font=ctk.CTkFont(size=15, weight="bold"))
+        lbl.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="w")
+
+        # Botón Start / Stop
+        self.btn_start = ctk.CTkButton(
+            parent, text="▶  Iniciar Tracking", height=45,
+            font=ctk.CTkFont(size=15, weight="bold"),
+            fg_color="#0d6efd", hover_color="#0b5ed7",
+            command=self._toggle_tracking
+        )
+        self.btn_start.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
+
+        # Info atajo
+        lbl_atajo = ctk.CTkLabel(parent, text="⌨️ Ctrl+Alt+H → Pausar/Reanudar",
+                                 font=ctk.CTkFont(size=11),
+                                 text_color="gray")
+        lbl_atajo.grid(row=2, column=0, padx=10, pady=(0, 5), sticky="w")
+
+        # Selector de cámara
+        lbl_cam = ctk.CTkLabel(parent, text="📷 Cámara:",
+                               font=ctk.CTkFont(size=13))
+        lbl_cam.grid(row=3, column=0, padx=10, pady=(10, 0), sticky="w")
+
+        camaras_disponibles = self._detectar_camaras()
+        self.combo_camara = ctk.CTkComboBox(
+            parent, values=camaras_disponibles,
+            state="readonly"
+        )
+        self.combo_camara.set(f"Cámara {self.perfil.id_camara}")
+        self.combo_camara.grid(row=4, column=0, padx=10, pady=5, sticky="ew")
+
+        # Modo zurdo/diestro
+        self.var_zurdo = ctk.BooleanVar(value=self.perfil.es_zurdo)
+        self.switch_zurdo = ctk.CTkSwitch(
+            parent, text="🤚 Modo Zurdo",
+            variable=self.var_zurdo,
+            font=ctk.CTkFont(size=13)
+        )
+        self.switch_zurdo.grid(row=5, column=0, padx=10, pady=10, sticky="w")
+
+    def _crear_seccion_calibracion(self, parent):
+        """Sección de Bounding Box, Suavizado y Zona Muerta."""
+        sep = ctk.CTkFrame(parent, height=2, fg_color="gray30")
+        sep.grid(row=6, column=0, padx=10, pady=5, sticky="ew")
+
+        lbl = ctk.CTkLabel(parent, text="🎯 Calibración",
+                           font=ctk.CTkFont(size=15, weight="bold"))
+        lbl.grid(row=7, column=0, padx=10, pady=(10, 5), sticky="w")
+
+        frame_cal = ctk.CTkFrame(parent, corner_radius=8)
+        frame_cal.grid(row=8, column=0, padx=5, pady=5, sticky="ew")
+        frame_cal.grid_columnconfigure(0, weight=1)
+
+        # --- Zona Activa (Bounding Box) ---
+        lbl_bb = ctk.CTkLabel(frame_cal, text="📐 Zona Activa (Bounding Box)",
+                              font=ctk.CTkFont(size=13, weight="bold"))
+        lbl_bb.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="w")
+
+        # X Min
+        self.lbl_xmin_val = ctk.CTkLabel(frame_cal, text=f"X Mín: {self.perfil.zona_activa_x_min:.2f}")
+        self.lbl_xmin_val.grid(row=1, column=0, padx=10, sticky="w")
+        self.slider_xmin = ctk.CTkSlider(frame_cal, from_=0.05, to=0.45,
+                                         command=lambda v: self.lbl_xmin_val.configure(text=f"X Mín: {v:.2f}"))
+        self.slider_xmin.set(self.perfil.zona_activa_x_min)
+        self.slider_xmin.grid(row=2, column=0, padx=10, pady=(0, 5), sticky="ew")
+
+        # X Max
+        self.lbl_xmax_val = ctk.CTkLabel(frame_cal, text=f"X Máx: {self.perfil.zona_activa_x_max:.2f}")
+        self.lbl_xmax_val.grid(row=3, column=0, padx=10, sticky="w")
+        self.slider_xmax = ctk.CTkSlider(frame_cal, from_=0.55, to=0.95,
+                                         command=lambda v: self.lbl_xmax_val.configure(text=f"X Máx: {v:.2f}"))
+        self.slider_xmax.set(self.perfil.zona_activa_x_max)
+        self.slider_xmax.grid(row=4, column=0, padx=10, pady=(0, 5), sticky="ew")
+
+        # Y Min
+        self.lbl_ymin_val = ctk.CTkLabel(frame_cal, text=f"Y Mín: {self.perfil.zona_activa_y_min:.2f}")
+        self.lbl_ymin_val.grid(row=5, column=0, padx=10, sticky="w")
+        self.slider_ymin = ctk.CTkSlider(frame_cal, from_=0.05, to=0.45,
+                                         command=lambda v: self.lbl_ymin_val.configure(text=f"Y Mín: {v:.2f}"))
+        self.slider_ymin.set(self.perfil.zona_activa_y_min)
+        self.slider_ymin.grid(row=6, column=0, padx=10, pady=(0, 5), sticky="ew")
+
+        # Y Max
+        self.lbl_ymax_val = ctk.CTkLabel(frame_cal, text=f"Y Máx: {self.perfil.zona_activa_y_max:.2f}")
+        self.lbl_ymax_val.grid(row=7, column=0, padx=10, sticky="w")
+        self.slider_ymax = ctk.CTkSlider(frame_cal, from_=0.55, to=0.95,
+                                         command=lambda v: self.lbl_ymax_val.configure(text=f"Y Máx: {v:.2f}"))
+        self.slider_ymax.set(self.perfil.zona_activa_y_max)
+        self.slider_ymax.grid(row=8, column=0, padx=10, pady=(0, 10), sticky="ew")
+
+        # --- Suavizado (Alpha EMA) ---
+        sep2 = ctk.CTkFrame(frame_cal, height=1, fg_color="gray40")
+        sep2.grid(row=9, column=0, padx=10, pady=5, sticky="ew")
+
+        lbl_suav = ctk.CTkLabel(frame_cal, text="🧹 Suavizado (Estabilidad ↔ Velocidad)",
+                                font=ctk.CTkFont(size=13, weight="bold"))
+        lbl_suav.grid(row=10, column=0, padx=10, pady=(5, 0), sticky="w")
+
+        self.lbl_suav_val = ctk.CTkLabel(frame_cal, text=f"Alpha: {self.perfil.suavizado_factor:.2f}")
+        self.lbl_suav_val.grid(row=11, column=0, padx=10, sticky="w")
+        self.slider_suavizado = ctk.CTkSlider(frame_cal, from_=0.1, to=1.0,
+                                              command=lambda v: self.lbl_suav_val.configure(text=f"Alpha: {v:.2f}"))
+        self.slider_suavizado.set(self.perfil.suavizado_factor)
+        self.slider_suavizado.grid(row=12, column=0, padx=10, pady=(0, 5), sticky="ew")
+
+        # Etiquetas explicativas
+        frame_etiq = ctk.CTkFrame(frame_cal, fg_color="transparent")
+        frame_etiq.grid(row=13, column=0, padx=10, sticky="ew")
+        frame_etiq.grid_columnconfigure((0, 1), weight=1)
+        ctk.CTkLabel(frame_etiq, text="← Más estable", text_color="gray",
+                     font=ctk.CTkFont(size=10)).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(frame_etiq, text="Más rápido →", text_color="gray",
+                     font=ctk.CTkFont(size=10)).grid(row=0, column=1, sticky="e")
+
+        # --- Zona Muerta ---
+        sep3 = ctk.CTkFrame(frame_cal, height=1, fg_color="gray40")
+        sep3.grid(row=14, column=0, padx=10, pady=5, sticky="ew")
+
+        lbl_zm = ctk.CTkLabel(frame_cal, text="🎯 Zona Muerta (Precisión)",
+                              font=ctk.CTkFont(size=13, weight="bold"))
+        lbl_zm.grid(row=15, column=0, padx=10, pady=(5, 0), sticky="w")
+
+        self.lbl_zm_val = ctk.CTkLabel(frame_cal, text=f"Umbral: {self.perfil.zona_muerta_px} px")
+        self.lbl_zm_val.grid(row=16, column=0, padx=10, sticky="w")
+        self.slider_zona_muerta = ctk.CTkSlider(
+            frame_cal, from_=0, to=10, number_of_steps=10,
+            command=lambda v: self.lbl_zm_val.configure(text=f"Umbral: {int(v)} px")
+        )
+        self.slider_zona_muerta.set(self.perfil.zona_muerta_px)
+        self.slider_zona_muerta.grid(row=17, column=0, padx=10, pady=(0, 10), sticky="ew")
+
+    def _crear_seccion_configuracion(self, parent):
+        """Sección de info adicional."""
+        sep = ctk.CTkFrame(parent, height=2, fg_color="gray30")
+        sep.grid(row=9, column=0, padx=10, pady=5, sticky="ew")
+
+        lbl_info = ctk.CTkLabel(
+            parent,
+            text="ℹ️ Los cambios en los sliders se aplican\nal guardar y recargar el perfil.",
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            justify="left"
+        )
+        lbl_info.grid(row=9, column=0, padx=10, pady=10, sticky="w")
+
+    # =========================================================================
+    # LÓGICA DE CONTROL
+    # =========================================================================
+
+    def _toggle_tracking(self):
+        """Inicia o detiene el tracking."""
+        if not self.tracking_activo:
+            self._iniciar_tracking()
+        else:
+            self._detener_tracking()
+
+    def _iniciar_tracking(self):
+        """Crea el motor y lo lanza en un Thread."""
+        self.motor = MotorHandTracking()
+
+        # Aplicar configuración de la UI al motor antes de iniciar
+        self._aplicar_configuracion_al_motor()
+
+        self.hilo_motor = threading.Thread(target=self.motor.iniciar, daemon=True)
+        self.hilo_motor.start()
+
+        self.tracking_activo = True
+        self.btn_start.configure(
+            text="⏹  Detener Tracking",
+            fg_color="#dc3545", hover_color="#c82333"
+        )
+
+    def _detener_tracking(self):
+        """Detiene el motor y el thread."""
+        if self.motor:
+            self.motor.ejecutando = False
+            if self.hilo_motor and self.hilo_motor.is_alive():
+                self.hilo_motor.join(timeout=2)
+            self.motor = None
+
+        self.tracking_activo = False
+        self.label_preview.configure(image=None, text="Cámara no iniciada")
+        self.btn_start.configure(
+            text="▶  Iniciar Tracking",
+            fg_color="#0d6efd", hover_color="#0b5ed7"
+        )
+
+        # Resetear estado
+        self.lbl_fps.configure(text="FPS: ---")
+        self.lbl_latencia.configure(text="Latencia: --- ms")
+        self.lbl_mano.configure(text="Mano: ❌")
+        self.lbl_gesto.configure(text="Gesto: ---")
+        self.lbl_accion.configure(text="Acción: ---")
+
+    def _alternar_pausa_global(self):
+        """Callback del atajo global Ctrl+Alt+H."""
+        if self.motor and self.tracking_activo:
+            self.motor.alternar_pausa()
+
+    def _aplicar_configuracion_al_motor(self):
+        """Aplica los valores actuales de los sliders al motor."""
+        if self.motor:
+            self.motor.filtro.set_alpha(self.slider_suavizado.get())
+            self.motor.zona_x_min = self.slider_xmin.get()
+            self.motor.zona_x_max = self.slider_xmax.get()
+            self.motor.zona_y_min = self.slider_ymin.get()
+            self.motor.zona_y_max = self.slider_ymax.get()
+            self.motor.controlador_mouse.set_zona_muerta(int(self.slider_zona_muerta.get()))
+            self.motor.es_zurdo = self.var_zurdo.get()
+
+    def _guardar_perfil(self):
+        """Guarda la configuración actual en la base de datos."""
+        # Extraer ID de cámara del combo
+        texto_camara = self.combo_camara.get()
+        id_camara = int(texto_camara.split(" ")[-1]) if texto_camara else 0
+
+        guardar_perfil(
+            id_perfil=self.perfil.id,
+            nombre=self.perfil.nombre,
+            suavizado=self.slider_suavizado.get(),
+            x_min=self.slider_xmin.get(),
+            y_min=self.slider_ymin.get(),
+            x_max=self.slider_xmax.get(),
+            y_max=self.slider_ymax.get(),
+            zona_muerta_px=int(self.slider_zona_muerta.get()),
+            es_zurdo=self.var_zurdo.get(),
+            id_camara=id_camara
+        )
+
+        # Si el motor está corriendo, recargar el perfil en vivo
+        if self.motor and self.tracking_activo:
+            self.motor.recargar_perfil()
+
+        # Feedback visual
+        self.btn_guardar.configure(text="✅ Perfil Guardado!", fg_color="#218838")
+        self.after(2000, lambda: self.btn_guardar.configure(
+            text="💾 Guardar Perfil", fg_color="#28a745"))
+
+    # =========================================================================
+    # ACTUALIZACIÓN DE PREVIEW Y ESTADO
+    # =========================================================================
+
+    def _actualizar_preview(self):
+        """Actualiza la preview de cámara y el estado en vivo (~30fps)."""
+        if self.motor and self.tracking_activo and self.motor.ultimo_frame is not None:
+            try:
+                frame = self.motor.ultimo_frame
+                # Convertir BGR (OpenCV) → RGB (Pillow) → ImageTk
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                imagen = Image.fromarray(frame_rgb)
+
+                # Escalar al tamaño del label manteniendo aspecto
+                lbl_w = self.label_preview.winfo_width()
+                lbl_h = self.label_preview.winfo_height()
+                if lbl_w > 1 and lbl_h > 1:
+                    img_w, img_h = imagen.size
+                    ratio = min(lbl_w / img_w, lbl_h / img_h)
+                    nuevo_w = max(1, int(img_w * ratio))
+                    nuevo_h = max(1, int(img_h * ratio))
+                else:
+                    nuevo_w, nuevo_h = (640, 480)
+
+                ctk_foto = ctk.CTkImage(light_image=imagen, dark_image=imagen, size=(nuevo_w, nuevo_h))
+                self.label_preview.configure(image=ctk_foto, text="")
+                self.label_preview._imagen = ctk_foto  # Mantener referencia
+
+                # Actualizar indicadores de estado
+                self.lbl_fps.configure(text=f"FPS: {self.motor.fps_actual:.1f}")
+                self.lbl_latencia.configure(text=f"Latencia: {self.motor.latencia_ms:.0f} ms")
+
+                if self.motor.mano_detectada:
+                    self.lbl_mano.configure(text="Mano: ✅", text_color="#28a745")
+                else:
+                    self.lbl_mano.configure(text="Mano: ❌", text_color="#dc3545")
+
+                self.lbl_gesto.configure(text=f"Gesto: {self.motor.gesto_actual}")
+                self.lbl_accion.configure(text=f"Acción: {self.motor.accion_actual}")
+
+            except Exception:
+                pass  # Evitar crash por frame en transición
+
+        # Programar siguiente actualización (~30fps)
+        self.after(33, self._actualizar_preview)
+
+    # =========================================================================
+    # UTILIDADES
+    # =========================================================================
+
+    def _detectar_camaras(self, max_camaras=5):
+        """Detecta cámaras disponibles probando índices de OpenCV."""
+        camaras = []
+        for i in range(max_camaras):
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                camaras.append(f"Cámara {i}")
+                cap.release()
+        if not camaras:
+            camaras = ["Cámara 0"]  # Fallback
+        return camaras
+
+    def _al_cerrar(self):
+        """Limpieza al cerrar la ventana."""
+        self._detener_tracking()
+        keyboard.unhook_all()
+        self.destroy()
