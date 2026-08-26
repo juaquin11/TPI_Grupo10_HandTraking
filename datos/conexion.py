@@ -2,7 +2,7 @@
 Módulo de conexión a la base de datos SQLite usando SQLAlchemy.
 """
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Nombre de la base de datos local SQLite
@@ -20,8 +20,29 @@ Base = declarative_base()
 
 
 def inicializar_db():
-    """Crea todas las tablas definidas en los modelos si aún no existen."""
+    """Crea las tablas y agrega columnas nuevas a bases existentes."""
     Base.metadata.create_all(bind=engine)
+
+    columnas_faltantes = {
+        "zona_muerta_px": "INTEGER NOT NULL DEFAULT 3",
+        "es_zurdo": "BOOLEAN NOT NULL DEFAULT 0",
+        "id_camara": "INTEGER NOT NULL DEFAULT 0",
+    }
+
+    inspector = inspect(engine)
+    columnas_actuales = {
+        columna["name"] for columna in inspector.get_columns("perfil_calibracion")
+    }
+
+    with engine.begin() as conexion:
+        for nombre, definicion in columnas_faltantes.items():
+            if nombre not in columnas_actuales:
+                conexion.execute(
+                    text(
+                        f"ALTER TABLE perfil_calibracion "
+                        f"ADD COLUMN {nombre} {definicion}"
+                    )
+                )
 
 
 def obtener_sesion():
