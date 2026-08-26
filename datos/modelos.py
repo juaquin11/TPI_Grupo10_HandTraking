@@ -34,6 +34,9 @@ class PerfilCalibracion(Base):
     # ID de la cámara seleccionada (0 = predeterminada)
     id_camara = Column(Integer, nullable=False, default=0)
 
+    # Umbral de pellizco: distancia máxima entre puntas para detectar un pellizco (0.02 a 0.12)
+    umbral_pellizco = Column(Float, nullable=False, default=0.06)
+
     es_activo = Column(Boolean, nullable=False, default=True)
 
     # Relación con las configuraciones de gestos asignadas a este perfil

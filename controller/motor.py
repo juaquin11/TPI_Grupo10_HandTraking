@@ -56,6 +56,9 @@ class MotorHandTracking:
         # Modo zurdo: invierte el eje X
         self.es_zurdo = self.perfil.es_zurdo
 
+        # Umbral de pellizco configurable (sensibilidad de los clics)
+        self.umbral_pellizco = self.perfil.umbral_pellizco
+
         # Mapeo de gestos a acciones (cargado desde la BD)
         self.mapeo_gestos = {}
         for gesto_config in self.perfil.gestos:
@@ -266,7 +269,7 @@ class MotorHandTracking:
 
             if landmarks:
                 self.mano_detectada = True
-                gesto = reconocer_gesto(landmarks)
+                gesto = reconocer_gesto(landmarks, umbral_pellizco=self.umbral_pellizco)
                 self.gesto_actual = gesto
 
                 # Ejecutar acción correspondiente
@@ -348,6 +351,7 @@ class MotorHandTracking:
         self.zona_y_max = self.perfil.zona_activa_y_max
         self.controlador_mouse.set_zona_muerta(self.perfil.zona_muerta_px)
         self.es_zurdo = self.perfil.es_zurdo
+        self.umbral_pellizco = self.perfil.umbral_pellizco
 
         self.mapeo_gestos.clear()
         for gesto_config in self.perfil.gestos:

@@ -42,6 +42,7 @@ def _crear_perfil_predeterminado(sesion):
         zona_muerta_px=3,
         es_zurdo=False,
         id_camara=0,
+        umbral_pellizco=0.06,
         es_activo=True
     )
     sesion.add(nuevo_perfil)
@@ -62,7 +63,7 @@ def _crear_perfil_predeterminado(sesion):
 
 
 def guardar_perfil(id_perfil, nombre, suavizado, x_min, y_min, x_max, y_max,
-                   zona_muerta_px=3, es_zurdo=False, id_camara=0):
+                   zona_muerta_px=3, es_zurdo=False, id_camara=0, umbral_pellizco=0.06):
     """
     Actualiza los datos del perfil de calibración especificado.
     """
@@ -79,6 +80,7 @@ def guardar_perfil(id_perfil, nombre, suavizado, x_min, y_min, x_max, y_max,
             perfil.zona_muerta_px = zona_muerta_px
             perfil.es_zurdo = es_zurdo
             perfil.id_camara = id_camara
+            perfil.umbral_pellizco = umbral_pellizco
             sesion.commit()
             sesion.refresh(perfil)
         return perfil
@@ -106,5 +108,38 @@ def actualizar_mapeo_gesto(id_gesto, nueva_accion, habilitado=True):
             sesion.commit()
             sesion.refresh(gesto)
         return gesto
+    finally:
+        sesion.close()
+
+
+def restaurar_gestos_predeterminados(id_perfil):
+    """
+    Restaura los gestos de un perfil a los valores predeterminados de fábrica.
+    Elimina los gestos existentes y los recrea con el mapeo original.
+    """
+    gestos_default = {
+        "MANO_ABIERTA": "MOVER_CURSOR",
+        "PELLIZCO_INDICE": "CLIC_IZQUIERDO",
+        "PELLIZCO_MEDIO": "CLIC_DERECHO",
+        "PELLIZCO_TRIPLE": "DRAG_AND_DROP",
+        "DOS_DEDOS": "SCROLL",
+    }
+    sesion = obtener_sesion()
+    try:
+        # Eliminar gestos actuales del perfil
+        sesion.query(ConfiguracionGesto).filter_by(perfil_id=id_perfil).delete()
+
+        # Recrear con defaults
+        for nombre_gesto, accion in gestos_default.items():
+            sesion.add(ConfiguracionGesto(
+                perfil_id=id_perfil,
+                nombre_gesto=nombre_gesto,
+                accion_sistema=accion,
+                habilitado=True
+            ))
+        sesion.commit()
+
+        # Retornar los gestos recién creados
+        return sesion.query(ConfiguracionGesto).filter_by(perfil_id=id_perfil).all()
     finally:
         sesion.close()

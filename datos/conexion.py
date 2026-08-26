@@ -27,6 +27,7 @@ def inicializar_db():
         "zona_muerta_px": "INTEGER NOT NULL DEFAULT 3",
         "es_zurdo": "BOOLEAN NOT NULL DEFAULT 0",
         "id_camara": "INTEGER NOT NULL DEFAULT 0",
+        "umbral_pellizco": "REAL NOT NULL DEFAULT 0.06",
     }
 
     inspector = inspect(engine)

@@ -20,7 +20,7 @@ from PIL import Image, ImageTk
 import customtkinter as ctk
 
 from controller.motor import MotorHandTracking
-from datos.repositorio import obtener_perfil_activo, guardar_perfil
+from datos.repositorio import obtener_perfil_activo, guardar_perfil, actualizar_mapeo_gesto, restaurar_gestos_predeterminados
 
 
 # Tema global de CustomTkinter
@@ -276,18 +276,107 @@ class Dashboard(ctk.CTk):
         self.slider_zona_muerta.grid(row=17, column=0, padx=10, pady=(0, 10), sticky="ew")
 
     def _crear_seccion_configuracion(self, parent):
-        """Sección de info adicional."""
+        """Sección del Editor de Gestos: tabla Gesto → Acción y umbral de pellizco."""
         sep = ctk.CTkFrame(parent, height=2, fg_color="gray30")
         sep.grid(row=9, column=0, padx=10, pady=5, sticky="ew")
 
+        lbl = ctk.CTkLabel(parent, text="🖐️ Mapeo de Gestos",
+                           font=ctk.CTkFont(size=15, weight="bold"))
+        lbl.grid(row=10, column=0, padx=10, pady=(10, 5), sticky="w")
+
+        frame_gestos = ctk.CTkFrame(parent, corner_radius=8)
+        frame_gestos.grid(row=11, column=0, padx=5, pady=5, sticky="ew")
+        frame_gestos.grid_columnconfigure(1, weight=1)
+
+        # Acciones disponibles para asignar a cada gesto
+        acciones_disponibles = [
+            "MOVER_CURSOR", "CLIC_IZQUIERDO", "CLIC_DERECHO",
+            "DRAG_AND_DROP", "SCROLL", "NINGUNA"
+        ]
+
+        # Nombres legibles para los gestos
+        nombres_legibles = {
+            "MANO_ABIERTA": "🖐️ Mano Abierta",
+            "PELLIZCO_INDICE": "🤏 Pellizco Índice",
+            "PELLIZCO_MEDIO": "🤏 Pellizco Medio",
+            "PELLIZCO_TRIPLE": "🤌 Pellizco Triple",
+            "DOS_DEDOS": "✌️ Dos Dedos",
+        }
+
+        # Crear dropdown por cada gesto del perfil
+        self.dropdowns_gestos = {}  # {id_gesto: CTkOptionMenu}
+
+        for fila, gesto_config in enumerate(self.perfil.gestos):
+            nombre = nombres_legibles.get(gesto_config.nombre_gesto, gesto_config.nombre_gesto)
+
+            lbl_gesto = ctk.CTkLabel(frame_gestos, text=nombre,
+                                     font=ctk.CTkFont(size=12))
+            lbl_gesto.grid(row=fila, column=0, padx=(10, 5), pady=4, sticky="w")
+
+            dropdown = ctk.CTkOptionMenu(
+                frame_gestos, values=acciones_disponibles,
+                font=ctk.CTkFont(size=11),
+                width=160
+            )
+            dropdown.set(gesto_config.accion_sistema)
+            dropdown.grid(row=fila, column=1, padx=(5, 10), pady=4, sticky="ew")
+
+            self.dropdowns_gestos[gesto_config.id] = dropdown
+
+        # --- Umbral de Pellizco ---
+        sep2 = ctk.CTkFrame(frame_gestos, height=1, fg_color="gray40")
+        sep2.grid(row=len(self.perfil.gestos), column=0, columnspan=2,
+                  padx=10, pady=5, sticky="ew")
+
+        lbl_umbral = ctk.CTkLabel(frame_gestos, text="🎯 Umbral de Pellizco",
+                                  font=ctk.CTkFont(size=13, weight="bold"))
+        lbl_umbral.grid(row=len(self.perfil.gestos) + 1, column=0, columnspan=2,
+                        padx=10, pady=(5, 0), sticky="w")
+
+        umbral_actual = getattr(self.perfil, 'umbral_pellizco', 0.06)
+        self.lbl_umbral_val = ctk.CTkLabel(
+            frame_gestos, text=f"Distancia: {umbral_actual:.2f}"
+        )
+        self.lbl_umbral_val.grid(row=len(self.perfil.gestos) + 2, column=0,
+                                 columnspan=2, padx=10, sticky="w")
+
+        self.slider_umbral = ctk.CTkSlider(
+            frame_gestos, from_=0.02, to=0.12,
+            command=lambda v: self.lbl_umbral_val.configure(text=f"Distancia: {v:.2f}")
+        )
+        self.slider_umbral.set(umbral_actual)
+        self.slider_umbral.grid(row=len(self.perfil.gestos) + 3, column=0,
+                                columnspan=2, padx=10, pady=(0, 3), sticky="ew")
+
+        # Etiquetas explicativas
+        frame_etiq_umb = ctk.CTkFrame(frame_gestos, fg_color="transparent")
+        frame_etiq_umb.grid(row=len(self.perfil.gestos) + 4, column=0,
+                            columnspan=2, padx=10, sticky="ew")
+        frame_etiq_umb.grid_columnconfigure((0, 1), weight=1)
+        ctk.CTkLabel(frame_etiq_umb, text="← Más estricto", text_color="gray",
+                     font=ctk.CTkFont(size=10)).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(frame_etiq_umb, text="Más tolerante →", text_color="gray",
+                     font=ctk.CTkFont(size=10)).grid(row=0, column=1, sticky="e")
+
+        # --- Botón Restaurar Gestos ---
+        self.btn_restaurar_gestos = ctk.CTkButton(
+            frame_gestos, text="🔄 Restaurar Gestos por Defecto", height=32,
+            font=ctk.CTkFont(size=12),
+            fg_color="#6c757d", hover_color="#5a6268",
+            command=self._restaurar_gestos
+        )
+        self.btn_restaurar_gestos.grid(row=len(self.perfil.gestos) + 5, column=0,
+                                       columnspan=2, padx=10, pady=(8, 10), sticky="ew")
+
+        # Info
         lbl_info = ctk.CTkLabel(
             parent,
-            text="ℹ️ Los cambios en los sliders se aplican\nal guardar y recargar el perfil.",
+            text="ℹ️ Los cambios se aplican al guardar el perfil.",
             font=ctk.CTkFont(size=11),
             text_color="gray",
             justify="left"
         )
-        lbl_info.grid(row=9, column=0, padx=10, pady=10, sticky="w")
+        lbl_info.grid(row=12, column=0, padx=10, pady=(5, 5), sticky="w")
 
     # =========================================================================
     # LÓGICA DE CONTROL
@@ -353,13 +442,15 @@ class Dashboard(ctk.CTk):
             self.motor.zona_y_max = self.slider_ymax.get()
             self.motor.controlador_mouse.set_zona_muerta(int(self.slider_zona_muerta.get()))
             self.motor.es_zurdo = self.var_zurdo.get()
+            self.motor.umbral_pellizco = self.slider_umbral.get()
 
     def _guardar_perfil(self):
-        """Guarda la configuración actual en la base de datos."""
+        """Guarda la configuración actual (calibración + gestos + umbral) en la base de datos."""
         # Extraer ID de cámara del combo
         texto_camara = self.combo_camara.get()
         id_camara = int(texto_camara.split(" ")[-1]) if texto_camara else 0
 
+        # 1. Guardar parámetros de calibración del perfil
         guardar_perfil(
             id_perfil=self.perfil.id,
             nombre=self.perfil.nombre,
@@ -370,10 +461,17 @@ class Dashboard(ctk.CTk):
             y_max=self.slider_ymax.get(),
             zona_muerta_px=int(self.slider_zona_muerta.get()),
             es_zurdo=self.var_zurdo.get(),
-            id_camara=id_camara
+            id_camara=id_camara,
+            umbral_pellizco=self.slider_umbral.get()
         )
 
-        # Si el motor está corriendo, recargar el perfil en vivo
+        # 2. Guardar mapeo de gestos (dropdowns)
+        for id_gesto, dropdown in self.dropdowns_gestos.items():
+            nueva_accion = dropdown.get()
+            habilitado = (nueva_accion != "NINGUNA")
+            actualizar_mapeo_gesto(id_gesto, nueva_accion, habilitado)
+
+        # 3. Si el motor está corriendo, recargar el perfil en vivo
         if self.motor and self.tracking_activo:
             self.motor.recargar_perfil()
 
@@ -393,6 +491,7 @@ class Dashboard(ctk.CTk):
         val_zm = 3
         val_zurdo = False
         val_cam = 0
+        val_umbral = 0.06
 
         # Actualizar sliders y etiquetas
         self.slider_xmin.set(val_xmin)
@@ -413,8 +512,14 @@ class Dashboard(ctk.CTk):
         self.slider_zona_muerta.set(val_zm)
         self.lbl_zm_val.configure(text=f"Umbral: {val_zm} px")
 
+        self.slider_umbral.set(val_umbral)
+        self.lbl_umbral_val.configure(text=f"Distancia: {val_umbral:.2f}")
+
         self.var_zurdo.set(val_zurdo)
         self.combo_camara.set(f"Cámara {val_cam}")
+
+        # Restaurar gestos también
+        self._restaurar_gestos(silencioso=True)
 
         # Guardar en base de datos
         guardar_perfil(
@@ -427,7 +532,8 @@ class Dashboard(ctk.CTk):
             y_max=val_ymax,
             zona_muerta_px=val_zm,
             es_zurdo=val_zurdo,
-            id_camara=val_cam
+            id_camara=val_cam,
+            umbral_pellizco=val_umbral
         )
 
         # Aplicar al motor si está corriendo
@@ -437,6 +543,31 @@ class Dashboard(ctk.CTk):
         self.btn_restablecer.configure(text="✅ Restablecido!", fg_color="#5a6268")
         self.after(2000, lambda: self.btn_restablecer.configure(
             text="🔄 Restablecer", fg_color="#6c757d"))
+
+    def _restaurar_gestos(self, silencioso=False):
+        """Restaura los gestos a los valores predeterminados de fábrica."""
+        gestos_nuevos = restaurar_gestos_predeterminados(self.perfil.id)
+
+        # Actualizar los dropdowns por posición y remapear IDs
+        items_list = list(self.dropdowns_gestos.values())
+        nuevos_dropdowns = {}
+        for i, gesto_nuevo in enumerate(gestos_nuevos):
+            if i < len(items_list):
+                items_list[i].set(gesto_nuevo.accion_sistema)
+                nuevos_dropdowns[gesto_nuevo.id] = items_list[i]
+        self.dropdowns_gestos = nuevos_dropdowns
+
+        # Recargar perfil en el motor
+        if self.motor and self.tracking_activo:
+            self.motor.recargar_perfil()
+
+        # Recargar el perfil local
+        self.perfil = obtener_perfil_activo()
+
+        if not silencioso:
+            self.btn_restaurar_gestos.configure(text="✅ Restaurados!", fg_color="#5a6268")
+            self.after(2000, lambda: self.btn_restaurar_gestos.configure(
+                text="🔄 Restaurar Gestos por Defecto", fg_color="#6c757d"))
 
     # =========================================================================
     # ACTUALIZACIÓN DE PREVIEW Y ESTADO
