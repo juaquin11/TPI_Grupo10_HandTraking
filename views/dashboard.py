@@ -120,14 +120,26 @@ class Dashboard(ctk.CTk):
         # --- Sección: Configuración ---
         self._crear_seccion_configuracion(col_der)
 
-        # --- Botón Guardar ---
+        # --- Botones de Acción ---
+        frame_botones = ctk.CTkFrame(col_der, fg_color="transparent")
+        frame_botones.grid(row=10, column=0, padx=10, pady=(15, 10), sticky="ew")
+        frame_botones.grid_columnconfigure((0, 1), weight=1)
+
         self.btn_guardar = ctk.CTkButton(
-            col_der, text="💾 Guardar Perfil", height=40,
+            frame_botones, text="💾 Guardar", height=40,
             font=ctk.CTkFont(size=14, weight="bold"),
             fg_color="#28a745", hover_color="#218838",
             command=self._guardar_perfil
         )
-        self.btn_guardar.grid(row=10, column=0, padx=10, pady=(15, 10), sticky="ew")
+        self.btn_guardar.grid(row=0, column=0, padx=(0, 5), sticky="ew")
+
+        self.btn_restablecer = ctk.CTkButton(
+            frame_botones, text="🔄 Restablecer", height=40,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#6c757d", hover_color="#5a6268",
+            command=self._restablecer_valores
+        )
+        self.btn_restablecer.grid(row=0, column=1, padx=(5, 0), sticky="ew")
 
     def _crear_seccion_controles(self, parent):
         """Sección de Start/Stop, Cámara y Modo Zurdo."""
@@ -366,9 +378,65 @@ class Dashboard(ctk.CTk):
             self.motor.recargar_perfil()
 
         # Feedback visual
-        self.btn_guardar.configure(text="✅ Perfil Guardado!", fg_color="#218838")
+        self.btn_guardar.configure(text="✅ Guardado!", fg_color="#218838")
         self.after(2000, lambda: self.btn_guardar.configure(
-            text="💾 Guardar Perfil", fg_color="#28a745"))
+            text="💾 Guardar", fg_color="#28a745"))
+
+    def _restablecer_valores(self):
+        """Restablece todos los parámetros a sus valores predeterminados de fábrica."""
+        # Valores por defecto
+        val_xmin = 0.20
+        val_xmax = 0.80
+        val_ymin = 0.20
+        val_ymax = 0.80
+        val_alpha = 0.50
+        val_zm = 3
+        val_zurdo = False
+        val_cam = 0
+
+        # Actualizar sliders y etiquetas
+        self.slider_xmin.set(val_xmin)
+        self.lbl_xmin_val.configure(text=f"X Mín: {val_xmin:.2f}")
+
+        self.slider_xmax.set(val_xmax)
+        self.lbl_xmax_val.configure(text=f"X Máx: {val_xmax:.2f}")
+
+        self.slider_ymin.set(val_ymin)
+        self.lbl_ymin_val.configure(text=f"Y Mín: {val_ymin:.2f}")
+
+        self.slider_ymax.set(val_ymax)
+        self.lbl_ymax_val.configure(text=f"Y Máx: {val_ymax:.2f}")
+
+        self.slider_suavizado.set(val_alpha)
+        self.lbl_suav_val.configure(text=f"Alpha: {val_alpha:.2f}")
+
+        self.slider_zona_muerta.set(val_zm)
+        self.lbl_zm_val.configure(text=f"Umbral: {val_zm} px")
+
+        self.var_zurdo.set(val_zurdo)
+        self.combo_camara.set(f"Cámara {val_cam}")
+
+        # Guardar en base de datos
+        guardar_perfil(
+            id_perfil=self.perfil.id,
+            nombre=self.perfil.nombre,
+            suavizado=val_alpha,
+            x_min=val_xmin,
+            y_min=val_ymin,
+            x_max=val_xmax,
+            y_max=val_ymax,
+            zona_muerta_px=val_zm,
+            es_zurdo=val_zurdo,
+            id_camara=val_cam
+        )
+
+        # Aplicar al motor si está corriendo
+        self._aplicar_configuracion_al_motor()
+
+        # Feedback visual
+        self.btn_restablecer.configure(text="✅ Restablecido!", fg_color="#5a6268")
+        self.after(2000, lambda: self.btn_restablecer.configure(
+            text="🔄 Restablecer", fg_color="#6c757d"))
 
     # =========================================================================
     # ACTUALIZACIÓN DE PREVIEW Y ESTADO
