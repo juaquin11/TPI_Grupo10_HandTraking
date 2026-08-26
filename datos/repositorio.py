@@ -112,6 +112,34 @@ def actualizar_mapeo_gesto(id_gesto, nueva_accion, habilitado=True):
         sesion.close()
 
 
+def guardar_mapeo_completo_gestos(id_perfil, mapeo_dict):
+    """
+    Guarda o actualiza el mapeo completo de gestos para un perfil.
+    mapeo_dict: dict con {nombre_gesto: accion_sistema}
+    """
+    sesion = obtener_sesion()
+    try:
+        gestos = sesion.query(ConfiguracionGesto).filter_by(perfil_id=id_perfil).all()
+        gestos_map = {g.nombre_gesto: g for g in gestos}
+
+        for nombre_gesto, accion in mapeo_dict.items():
+            habilitado = (accion != "NINGUNA")
+            if nombre_gesto in gestos_map:
+                gestos_map[nombre_gesto].accion_sistema = accion
+                gestos_map[nombre_gesto].habilitado = habilitado
+            else:
+                nuevo = ConfiguracionGesto(
+                    perfil_id=id_perfil,
+                    nombre_gesto=nombre_gesto,
+                    accion_sistema=accion,
+                    habilitado=habilitado
+                )
+                sesion.add(nuevo)
+        sesion.commit()
+    finally:
+        sesion.close()
+
+
 def restaurar_gestos_predeterminados(id_perfil):
     """
     Restaura los gestos de un perfil a los valores predeterminados de fábrica.

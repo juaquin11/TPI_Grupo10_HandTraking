@@ -124,16 +124,16 @@ class MotorHandTracking:
         - str con la acción a ejecutar: "INICIAR_DRAG", "MANTENER_DRAG",
           "SOLTAR_DRAG", o None si no hay acción de drag.
         """
-        es_pellizco_triple = (gesto == "PELLIZCO_TRIPLE")
+        es_drag = (self.mapeo_gestos.get(gesto) == "DRAG_AND_DROP")
 
         if self.drag_estado == DRAG_IDLE:
-            if es_pellizco_triple:
+            if es_drag:
                 self.drag_estado = DRAG_PUNO_DETECTADO
                 self.drag_frames_confirmacion = 1
             return None
 
         elif self.drag_estado == DRAG_PUNO_DETECTADO:
-            if es_pellizco_triple:
+            if es_drag:
                 self.drag_frames_confirmacion += 1
                 if self.drag_frames_confirmacion >= self.drag_frames_necesarios:
                     self.drag_estado = DRAG_DRAGGING
@@ -145,7 +145,7 @@ class MotorHandTracking:
             return None
 
         elif self.drag_estado == DRAG_DRAGGING:
-            if es_pellizco_triple:
+            if es_drag:
                 self.drag_frames_sin_puno = 0
                 return "MANTENER_DRAG"
             else:
