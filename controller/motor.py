@@ -252,6 +252,13 @@ class MotorHandTracking:
                         if accion_drag == "SOLTAR_DRAG":
                             self.controlador_mouse.soltar_arrastre()
 
+                # Dibujar zona activa (Bounding Box)
+                h, w_img, _ = frame.shape
+                x1, y1 = int(self.zona_x_min * w_img), int(self.zona_y_min * h)
+                x2, y2 = int(self.zona_x_max * w_img), int(self.zona_y_max * h)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 150, 0), 2)
+                cv2.putText(frame, "Zona Activa", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 150, 0), 1)
+
                 # Dibujar landmarks en el frame
                 frame = self.captura.dibujar_landmarks(frame, resultados)
 
