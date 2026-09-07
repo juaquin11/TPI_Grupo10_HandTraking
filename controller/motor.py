@@ -14,21 +14,14 @@ IMPORTANTE (Checklist):
 
 import time
 import cv2
+import queue
 
 from controller.captura import CapturaMano
 from controller.suavizado import FiltroEMA
 from controller.gestos import reconocer_gesto, calcular_centro_palma, INDICE_PUNTA
 from controller.acciones import ControladorMouse
 from datos.repositorio import obtener_perfil_activo
-
-
-# =============================================================================
-# Máquina de Estados Finita (FSM) para Drag & Drop
-# =============================================================================
-DRAG_IDLE = "IDLE"
-DRAG_PUNO_DETECTADO = "PUNO_DETECTADO"
-DRAG_DRAGGING = "DRAGGING"
-DRAG_RELEASE = "RELEASE"
+from controller.fsm_drag import DragStateMachine, DRAG_PUNO_DETECTADO, DRAG_DRAGGING
 
 
 class MotorHandTracking:
@@ -76,19 +69,10 @@ class MotorHandTracking:
         self.cooldown_clic = 0.4  # segundos mínimos entre clics
 
         # --- FSM Drag & Drop ---
-        self.drag_estado = DRAG_IDLE
-        self.drag_frames_confirmacion = 0
-        self.drag_frames_necesarios = 4
-        self.drag_frames_sin_puno = 0
-        self.drag_tolerancia_frames = 6
+        self.fsm_drag = DragStateMachine(frames_necesarios=4, tolerancia_frames=6)
 
-        # --- Estado en vivo (leído por la UI) ---
-        self.fps_actual = 0.0
-        self.latencia_ms = 0.0
-        self.mano_detectada = False
-        self.gesto_actual = "---"
-        self.accion_actual = "---"
-        self.ultimo_frame = None  # Frame procesado con landmarks (para la UI)
+        # --- Cola de Eventos para la UI ---
+        self.cola_estado = queue.Queue(maxsize=1)
 
     def _normalizar_a_zona_activa(self, x, y):
         """
@@ -112,57 +96,6 @@ class MotorHandTracking:
                 direccion = 1 if delta > 0 else -1
                 self.controlador_mouse.scroll(direccion)
         self.posicion_scroll_anterior = y_actual
-
-    def _actualizar_fsm_drag(self, gesto):
-        """
-        Actualiza la Máquina de Estados Finita (FSM) del Drag & Drop.
-
-        Transiciones basadas en si el gesto actual es PELLIZCO_TRIPLE o no.
-        Incluye confirmación por frames y tolerancia a pérdida breve.
-
-        Retorna:
-        - str con la acción a ejecutar: "INICIAR_DRAG", "MANTENER_DRAG",
-          "SOLTAR_DRAG", o None si no hay acción de drag.
-        """
-        es_drag = (self.mapeo_gestos.get(gesto) == "DRAG_AND_DROP")
-
-        if self.drag_estado == DRAG_IDLE:
-            if es_drag:
-                self.drag_estado = DRAG_PUNO_DETECTADO
-                self.drag_frames_confirmacion = 1
-            return None
-
-        elif self.drag_estado == DRAG_PUNO_DETECTADO:
-            if es_drag:
-                self.drag_frames_confirmacion += 1
-                if self.drag_frames_confirmacion >= self.drag_frames_necesarios:
-                    self.drag_estado = DRAG_DRAGGING
-                    self.drag_frames_sin_puno = 0
-                    return "INICIAR_DRAG"
-            else:
-                self.drag_estado = DRAG_IDLE
-                self.drag_frames_confirmacion = 0
-            return None
-
-        elif self.drag_estado == DRAG_DRAGGING:
-            if es_drag:
-                self.drag_frames_sin_puno = 0
-                return "MANTENER_DRAG"
-            else:
-                self.drag_frames_sin_puno += 1
-                if self.drag_frames_sin_puno >= self.drag_tolerancia_frames:
-                    self.drag_estado = DRAG_RELEASE
-                    return "SOLTAR_DRAG"
-                else:
-                    return "MANTENER_DRAG"
-
-        elif self.drag_estado == DRAG_RELEASE:
-            self.drag_estado = DRAG_IDLE
-            self.drag_frames_confirmacion = 0
-            self.drag_frames_sin_puno = 0
-            return None
-
-        return None
 
     def _ejecutar_accion(self, gesto, landmarks):
         """
@@ -188,8 +121,8 @@ class MotorHandTracking:
             self.posicion_scroll_anterior = None
 
         # 2. Actualizar FSM del Drag & Drop
-        estado_previo = self.drag_estado
-        accion_drag = self._actualizar_fsm_drag(gesto)
+        estado_previo = self.fsm_drag.estado
+        accion_drag = self.fsm_drag.actualizar(accion == "DRAG_AND_DROP")
 
         if accion_drag == "INICIAR_DRAG":
             self.controlador_mouse.iniciar_arrastre()
@@ -202,7 +135,7 @@ class MotorHandTracking:
 
         # Si estamos confirmando o arrastrando, suprimir clicks parciales
         if estado_previo in (DRAG_PUNO_DETECTADO, DRAG_DRAGGING) or \
-           self.drag_estado in (DRAG_PUNO_DETECTADO, DRAG_DRAGGING):
+           self.fsm_drag.estado in (DRAG_PUNO_DETECTADO, DRAG_DRAGGING):
             return
 
         # 3. Ejecutar acciones normales (solo si NO estamos en drag)
@@ -226,11 +159,27 @@ class MotorHandTracking:
             if self.controlador_mouse.esta_arrastrando and accion != "DRAG_AND_DROP":
                 self.controlador_mouse.soltar_arrastre()
 
+    def _enviar_estado_ui(self, frame, fps, latencia, mano_detectada, gesto_actual, accion_actual):
+        estado = {
+            "frame": frame,
+            "fps": fps,
+            "latencia": latencia,
+            "mano_detectada": mano_detectada,
+            "gesto": gesto_actual,
+            "accion": accion_actual
+        }
+        if self.cola_estado.full():
+            try:
+                self.cola_estado.get_nowait()
+            except queue.Empty:
+                pass
+        self.cola_estado.put(estado)
+
     def iniciar(self):
         """
         Inicia el bucle principal del tracking de mano.
         Diseñado para correr en un Thread separado.
-        La UI lee self.ultimo_frame para mostrar la preview.
+        La UI lee self.cola_estado para mostrar la preview.
         """
         self.ejecutando = True
         self.captura.iniciar_camara()
@@ -238,84 +187,93 @@ class MotorHandTracking:
 
         tiempo_anterior = time.time()
         contador_frames = 0
+        fps_actual = 0.0
+        latencia_ms = 0.0
 
         while self.ejecutando:
-            # Si está pausado, no procesar pero seguir capturando
-            if self.pausado:
+            try:
+                # Si está pausado, no procesar pero seguir capturando
+                if self.pausado:
+                    exito, frame = self.captura.leer_frame()
+                    if not exito:
+                        raise RuntimeError("Error al leer frame en pausa")
+                    
+                    frame = cv2.flip(frame, 1)
+                    cv2.putText(frame, "PAUSADO", (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                    self._enviar_estado_ui(frame, fps_actual, latencia_ms, False, "---", "PAUSADO")
+                    time.sleep(0.033)  # ~30fps mínimo
+                    continue
+
+                inicio_frame = time.time()
+
                 exito, frame = self.captura.leer_frame()
                 if not exito:
-                    break
+                    raise RuntimeError("Error al leer frame activo")
+
+                # Voltear horizontalmente para efecto espejo
                 frame = cv2.flip(frame, 1)
-                cv2.putText(frame, "PAUSADO", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                self.ultimo_frame = frame
-                self.mano_detectada = False
-                self.gesto_actual = "---"
-                self.accion_actual = "PAUSADO"
-                time.sleep(0.033)  # ~30fps mínimo
-                continue
 
-            inicio_frame = time.time()
+                # Detectar landmarks
+                landmarks, resultados = self.captura.detectar_landmarks(frame)
 
-            exito, frame = self.captura.leer_frame()
-            if not exito:
-                break
+                mano_detectada = False
+                gesto_actual = "---"
+                accion_actual = "---"
 
-            # Voltear horizontalmente para efecto espejo
-            frame = cv2.flip(frame, 1)
+                if landmarks:
+                    mano_detectada = True
+                    gesto = reconocer_gesto(landmarks, umbral_pellizco=self.umbral_pellizco)
+                    gesto_actual = gesto
 
-            # Detectar landmarks
-            landmarks, resultados = self.captura.detectar_landmarks(frame)
+                    # Ejecutar acción correspondiente
+                    self._ejecutar_accion(gesto, landmarks)
 
-            if landmarks:
-                self.mano_detectada = True
-                gesto = reconocer_gesto(landmarks, umbral_pellizco=self.umbral_pellizco)
-                self.gesto_actual = gesto
+                    self.gesto_anterior = gesto
 
-                # Ejecutar acción correspondiente
-                self._ejecutar_accion(gesto, landmarks)
+                    # Determinar la acción que se muestra
+                    accion_display = self.mapeo_gestos.get(gesto, "---")
+                    if self.fsm_drag.estado == DRAG_PUNO_DETECTADO:
+                        accion_display = f"Confirmando... ({self.fsm_drag.frames_confirmacion}/{self.fsm_drag.frames_necesarios})"
+                    elif self.fsm_drag.estado == DRAG_DRAGGING:
+                        accion_display = "ARRASTRANDO"
+                    accion_actual = accion_display
 
-                self.gesto_anterior = gesto
+                    # Dibujar info en el frame
+                    cv2.putText(frame, f"Gesto: {gesto}", (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    cv2.putText(frame, f"Accion: {accion_display}", (10, 60),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
 
-                # Determinar la acción que se muestra
-                accion_display = self.mapeo_gestos.get(gesto, "---")
-                if self.drag_estado == DRAG_PUNO_DETECTADO:
-                    accion_display = f"Confirmando... ({self.drag_frames_confirmacion}/{self.drag_frames_necesarios})"
-                elif self.drag_estado == DRAG_DRAGGING:
-                    accion_display = "ARRASTRANDO"
-                self.accion_actual = accion_display
+                else:
+                    # Tolerancia de drag ante pérdida de mano
+                    if self.fsm_drag.estado == DRAG_DRAGGING:
+                        accion_drag = self.fsm_drag.actualizar(False)
+                        if accion_drag == "SOLTAR_DRAG":
+                            self.controlador_mouse.soltar_arrastre()
 
-                # Dibujar info en el frame
-                cv2.putText(frame, f"Gesto: {gesto}", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                cv2.putText(frame, f"Accion: {accion_display}", (10, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                # Dibujar landmarks en el frame
+                frame = self.captura.dibujar_landmarks(frame, resultados)
 
-            else:
-                self.mano_detectada = False
-                self.gesto_actual = "---"
-                self.accion_actual = "---"
+                # Calcular FPS y latencia
+                fin_frame = time.time()
+                latencia_ms = (fin_frame - inicio_frame) * 1000
+                contador_frames += 1
+                if fin_frame - tiempo_anterior >= 1.0:
+                    fps_actual = contador_frames / (fin_frame - tiempo_anterior)
+                    contador_frames = 0
+                    tiempo_anterior = fin_frame
 
-                # Tolerancia de drag ante pérdida de mano
-                if self.drag_estado == DRAG_DRAGGING:
-                    self.drag_frames_sin_puno += 1
-                    if self.drag_frames_sin_puno >= self.drag_tolerancia_frames:
-                        self.controlador_mouse.soltar_arrastre()
-                        self.drag_estado = DRAG_IDLE
-                        self.drag_frames_sin_puno = 0
+                self._enviar_estado_ui(frame, fps_actual, latencia_ms, mano_detectada, gesto_actual, accion_actual)
 
-            # Dibujar landmarks en el frame
-            frame = self.captura.dibujar_landmarks(frame, resultados)
-            self.ultimo_frame = frame
-
-            # Calcular FPS y latencia
-            fin_frame = time.time()
-            self.latencia_ms = (fin_frame - inicio_frame) * 1000
-            contador_frames += 1
-            if fin_frame - tiempo_anterior >= 1.0:
-                self.fps_actual = contador_frames / (fin_frame - tiempo_anterior)
-                contador_frames = 0
-                tiempo_anterior = fin_frame
+            except Exception as e:
+                print(f"[Motor] Error en cámara o procesamiento: {e}. Intentando reconectar...")
+                time.sleep(1.0)
+                try:
+                    self.captura.liberar()
+                    self.captura.iniciar_camara()
+                except:
+                    pass
 
         self.detener()
 
@@ -323,13 +281,8 @@ class MotorHandTracking:
         """Detiene el tracking y libera recursos."""
         self.ejecutando = False
         self.controlador_mouse.soltar_arrastre()
-        self.drag_estado = DRAG_IDLE
+        self.fsm_drag.resetear()
         self.captura.liberar()
-        self.mano_detectada = False
-        self.gesto_actual = "---"
-        self.accion_actual = "---"
-        self.fps_actual = 0.0
-        self.ultimo_frame = None
         print("[Motor] HandTracking detenido.")
 
     def alternar_pausa(self):

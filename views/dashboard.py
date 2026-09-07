@@ -15,6 +15,8 @@ IMPORTANTE (Checklist):
 
 import threading
 import cv2
+import queue
+import concurrent.futures
 import keyboard
 from PIL import Image, ImageTk
 import customtkinter as ctk
@@ -26,6 +28,7 @@ from datos.repositorio import (
     guardar_mapeo_completo_gestos,
     restaurar_gestos_predeterminados,
 )
+from views.pip_window import WidgetFlotante
 
 
 # Tema global de CustomTkinter
@@ -46,10 +49,18 @@ class Dashboard(ctk.CTk):
         self.minsize(900, 680)
         self.protocol("WM_DELETE_WINDOW", self._al_cerrar)
 
+        # Thread pool para operaciones de DB asíncronas
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+
         # Motor y estado
         self.motor = None
         self.hilo_motor = None
         self.tracking_activo = False
+
+        # Modo Widget Flotante (PiP)
+        self.pip_window = None
+        self.bind("<Unmap>", self._on_window_unmap)
+        self.bind("<Map>", self._on_window_map)
 
         # Cargar perfil actual
         self.perfil = obtener_perfil_activo()
@@ -62,6 +73,33 @@ class Dashboard(ctk.CTk):
 
         # Iniciar actualización periódica de la preview
         self._actualizar_preview()
+
+    # =========================================================================
+    # EVENTOS DE VENTANA (MINIMIZAR/RESTAURAR)
+    # =========================================================================
+
+    def _on_window_unmap(self, event):
+        """Detecta cuando la ventana principal se minimiza para abrir el PiP."""
+        if event.widget == self and self.state() == "iconic":
+            # Solo abrir el PiP si el tracking está activo
+            if self.pip_window is None and self.tracking_activo:
+                self.pip_window = WidgetFlotante(self, self._restaurar_desde_pip)
+
+    def _on_window_map(self, event):
+        """Detecta cuando la ventana principal se restaura para cerrar el PiP."""
+        if event.widget == self and self.state() in ("normal", "zoomed"):
+            self._cerrar_pip()
+
+    def _restaurar_desde_pip(self):
+        """Restaura la ventana principal desde el widget PiP."""
+        self._cerrar_pip()
+        self.deiconify()
+
+    def _cerrar_pip(self):
+        """Cierra el widget PiP si existe."""
+        if self.pip_window is not None:
+            self.pip_window.destroy()
+            self.pip_window = None
 
     # =========================================================================
     # CONSTRUCCIÓN DE LA INTERFAZ
@@ -443,6 +481,10 @@ class Dashboard(ctk.CTk):
             fg_color="#dc3545", hover_color="#c82333"
         )
 
+        # Si ya estaba minimizada (raro, pero posible) abrir PiP
+        if self.state() == "iconic" and self.pip_window is None:
+            self.pip_window = WidgetFlotante(self, self._restaurar_desde_pip)
+
     def _detener_tracking(self):
         """Detiene el motor y el thread."""
         if self.motor:
@@ -457,6 +499,9 @@ class Dashboard(ctk.CTk):
             text="▶  Iniciar Tracking",
             fg_color="#0d6efd", hover_color="#0b5ed7"
         )
+        
+        # Cerrar PiP si estaba abierto
+        self._cerrar_pip()
 
         # Resetear estado
         self.lbl_fps.configure(text="FPS: ---")
@@ -491,37 +536,39 @@ class Dashboard(ctk.CTk):
             self.motor.mapeo_gestos = nuevo_mapeo
 
     def _guardar_perfil(self):
-        """Guarda la configuración actual (calibración + gestos + umbral) en la base de datos."""
-        # Extraer ID de cámara del combo
+        """Guarda la configuración actual asincronamente."""
         texto_camara = self.combo_camara.get()
         id_camara = int(texto_camara.split(" ")[-1]) if texto_camara else 0
 
-        # 1. Guardar parámetros de calibración del perfil
-        guardar_perfil(
-            id_perfil=self.perfil.id,
-            nombre=self.perfil.nombre,
-            suavizado=self.slider_suavizado.get(),
-            x_min=self.slider_xmin.get(),
-            y_min=self.slider_ymin.get(),
-            x_max=self.slider_xmax.get(),
-            y_max=self.slider_ymax.get(),
-            zona_muerta_px=int(self.slider_zona_muerta.get()),
-            es_zurdo=self.var_zurdo.get(),
-            id_camara=id_camara,
-            umbral_pellizco=self.slider_umbral.get()
-        )
-
-        # 2. Guardar mapeo completo de gestos
+        # Mapeo completo de gestos
         mapeo_dict = {nombre: dropdown.get() for nombre, dropdown in self.dropdowns_gestos.items()}
-        guardar_mapeo_completo_gestos(self.perfil.id, mapeo_dict)
+        
+        # Guardado asíncrono
+        def operacion_db():
+            guardar_perfil(
+                id_perfil=self.perfil.id,
+                nombre=self.perfil.nombre,
+                suavizado=self.slider_suavizado.get(),
+                x_min=self.slider_xmin.get(),
+                y_min=self.slider_ymin.get(),
+                x_max=self.slider_xmax.get(),
+                y_max=self.slider_ymax.get(),
+                zona_muerta_px=int(self.slider_zona_muerta.get()),
+                es_zurdo=self.var_zurdo.get(),
+                id_camara=id_camara,
+                umbral_pellizco=self.slider_umbral.get()
+            )
+            guardar_mapeo_completo_gestos(self.perfil.id, mapeo_dict)
+            
+            # Feedback visual (vuelve al Hilo Principal via .after())
+            self.after(0, lambda: self.btn_guardar.configure(text="✅ Guardado!", fg_color="#218838"))
+            self.after(2000, lambda: self.btn_guardar.configure(text="💾 Guardar", fg_color="#28a745"))
 
-        # 3. Aplicar al motor inmediatamente
+        self.btn_guardar.configure(text="⏳ Guardando...", fg_color="#ffc107")
+        self.executor.submit(operacion_db)
+
+        # Aplicar al motor inmediatamente
         self._aplicar_configuracion_al_motor()
-
-        # Feedback visual
-        self.btn_guardar.configure(text="✅ Guardado!", fg_color="#218838")
-        self.after(2000, lambda: self.btn_guardar.configure(
-            text="💾 Guardar", fg_color="#28a745"))
 
     def _restablecer_valores(self):
         """Restablece todos los parámetros a sus valores predeterminados de fábrica."""
@@ -561,34 +608,36 @@ class Dashboard(ctk.CTk):
         self.var_zurdo.set(val_zurdo)
         self.combo_camara.set(f"Cámara {val_cam}")
 
-        # Restaurar gestos también
-        self._restaurar_gestos(silencioso=True)
+        # Guardar en base de datos asincronamente
+        def operacion_db():
+            guardar_perfil(
+                id_perfil=self.perfil.id,
+                nombre=self.perfil.nombre,
+                suavizado=val_alpha,
+                x_min=val_xmin,
+                y_min=val_ymin,
+                x_max=val_xmax,
+                y_max=val_ymax,
+                zona_muerta_px=val_zm,
+                es_zurdo=val_zurdo,
+                id_camara=val_cam,
+                umbral_pellizco=val_umbral
+            )
+            # Feedback visual
+            self.after(0, lambda: self.btn_restablecer.configure(text="✅ Restablecido!", fg_color="#5a6268"))
+            self.after(2000, lambda: self.btn_restablecer.configure(text="🔄 Restablecer", fg_color="#6c757d"))
 
-        # Guardar en base de datos
-        guardar_perfil(
-            id_perfil=self.perfil.id,
-            nombre=self.perfil.nombre,
-            suavizado=val_alpha,
-            x_min=val_xmin,
-            y_min=val_ymin,
-            x_max=val_xmax,
-            y_max=val_ymax,
-            zona_muerta_px=val_zm,
-            es_zurdo=val_zurdo,
-            id_camara=val_cam,
-            umbral_pellizco=val_umbral
-        )
+        self.btn_restablecer.configure(text="⏳ Restableciendo...", fg_color="#ffc107")
+        self.executor.submit(operacion_db)
 
         # Aplicar al motor si está corriendo
         self._aplicar_configuracion_al_motor()
 
-        # Feedback visual
-        self.btn_restablecer.configure(text="✅ Restablecido!", fg_color="#5a6268")
-        self.after(2000, lambda: self.btn_restablecer.configure(
-            text="🔄 Restablecer", fg_color="#6c757d"))
+        # Restaurar gestos también
+        self._restaurar_gestos(silencioso=True)
 
     def _restaurar_gestos(self, silencioso=False):
-        """Restaura los gestos a los valores predeterminados de fábrica."""
+        """Restaura los gestos a los valores predeterminados de fábrica asincronamente."""
         gestos_default = {
             "MANO_ABIERTA": "MOVER_CURSOR",
             "PELLIZCO_INDICE": "CLIC_IZQUIERDO",
@@ -601,38 +650,41 @@ class Dashboard(ctk.CTk):
             if nombre_gesto in self.dropdowns_gestos:
                 self.dropdowns_gestos[nombre_gesto].set(accion)
 
-        guardar_mapeo_completo_gestos(self.perfil.id, gestos_default)
+        def operacion_db():
+            guardar_mapeo_completo_gestos(self.perfil.id, gestos_default)
+            if not silencioso:
+                self.after(0, lambda: self.btn_restaurar_gestos.configure(text="✅ Restaurados!", fg_color="#5a6268"))
+                self.after(2000, lambda: self.btn_restaurar_gestos.configure(text="🔄 Restaurar Gestos por Defecto", fg_color="#6c757d"))
+
+        if not silencioso:
+            self.btn_restaurar_gestos.configure(text="⏳ Restaurando...", fg_color="#ffc107")
+            
+        self.executor.submit(operacion_db)
         self._aplicar_configuracion_al_motor()
-
-        if not silencioso:
-            self.btn_restaurar_gestos.configure(text="✅ Restaurados!", fg_color="#5a6268")
-            self.after(2000, lambda: self.btn_restaurar_gestos.configure(
-                text="🔄 Restaurar Gestos por Defecto", fg_color="#6c757d"))
-
-        # Recargar el perfil local
-        self.perfil = obtener_perfil_activo()
-
-        if not silencioso:
-            self.btn_restaurar_gestos.configure(text="✅ Restaurados!", fg_color="#5a6268")
-            self.after(2000, lambda: self.btn_restaurar_gestos.configure(
-                text="🔄 Restaurar Gestos por Defecto", fg_color="#6c757d"))
 
     # =========================================================================
     # ACTUALIZACIÓN DE PREVIEW Y ESTADO
     # =========================================================================
 
     def _actualizar_preview(self):
-        """Actualiza la preview de cámara y el estado en vivo (~30fps)."""
-        if self.motor and self.tracking_activo and self.motor.ultimo_frame is not None:
+        """Actualiza la preview de cámara y el estado en vivo consumiendo la cola de eventos."""
+        if self.motor and self.tracking_activo:
             try:
-                frame = self.motor.ultimo_frame
+                estado = self.motor.cola_estado.get_nowait()
+                frame = estado["frame"]
+                
                 # Convertir BGR (OpenCV) → RGB (Pillow) → ImageTk
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 imagen = Image.fromarray(frame_rgb)
 
-                # Escalar al tamaño del label manteniendo aspecto
-                lbl_w = self.label_preview.winfo_width()
-                lbl_h = self.label_preview.winfo_height()
+                # Si hay ventana flotante (PiP), redimensionar para ella
+                if self.pip_window is not None:
+                    lbl_w = self.pip_window.winfo_width()
+                    lbl_h = self.pip_window.winfo_height()
+                else:
+                    lbl_w = self.label_preview.winfo_width()
+                    lbl_h = self.label_preview.winfo_height()
+
                 if lbl_w > 1 and lbl_h > 1:
                     img_w, img_h = imagen.size
                     ratio = min(lbl_w / img_w, lbl_h / img_h)
@@ -642,23 +694,30 @@ class Dashboard(ctk.CTk):
                     nuevo_w, nuevo_h = (640, 480)
 
                 ctk_foto = ctk.CTkImage(light_image=imagen, dark_image=imagen, size=(nuevo_w, nuevo_h))
-                self.label_preview.configure(image=ctk_foto, text="")
-                self.label_preview._imagen = ctk_foto  # Mantener referencia
+                
+                # Renderizar donde corresponda
+                if self.pip_window is not None:
+                    self.pip_window.actualizar_imagen(ctk_foto)
+                else:
+                    self.label_preview.configure(image=ctk_foto, text="")
+                    self.label_preview._imagen = ctk_foto  # Mantener referencia
 
                 # Actualizar indicadores de estado
-                self.lbl_fps.configure(text=f"FPS: {self.motor.fps_actual:.1f}")
-                self.lbl_latencia.configure(text=f"Latencia: {self.motor.latencia_ms:.0f} ms")
+                self.lbl_fps.configure(text=f"FPS: {estado['fps']:.1f}")
+                self.lbl_latencia.configure(text=f"Latencia: {estado['latencia']:.0f} ms")
 
-                if self.motor.mano_detectada:
+                if estado["mano_detectada"]:
                     self.lbl_mano.configure(text="Mano: ✅", text_color="#28a745")
                 else:
                     self.lbl_mano.configure(text="Mano: ❌", text_color="#dc3545")
 
-                self.lbl_gesto.configure(text=f"Gesto: {self.motor.gesto_actual}")
-                self.lbl_accion.configure(text=f"Acción: {self.motor.accion_actual}")
+                self.lbl_gesto.configure(text=f"Gesto: {estado['gesto']}")
+                self.lbl_accion.configure(text=f"Acción: {estado['accion']}")
 
-            except Exception:
-                pass  # Evitar crash por frame en transición
+            except queue.Empty:
+                pass  # No hay frames nuevos
+            except Exception as e:
+                print(f"[UI] Error actualizando preview: {e}")
 
         # Programar siguiente actualización (~30fps)
         self.after(33, self._actualizar_preview)
@@ -682,5 +741,6 @@ class Dashboard(ctk.CTk):
     def _al_cerrar(self):
         """Limpieza al cerrar la ventana."""
         self._detener_tracking()
+        self.executor.shutdown(wait=False)
         keyboard.unhook_all()
         self.destroy()
