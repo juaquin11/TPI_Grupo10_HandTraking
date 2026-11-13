@@ -349,7 +349,7 @@ class Dashboard(ctk.CTk):
 
     def _aplicar_configuracion_al_motor(self):
         if self.motor:
-            # Ahora toma los valores directo del perfil (modificado por el Wizard)
+            # 1. Aplicar matemáticas y umbrales (lo que ya tenías)
             self.motor.filtro.set_alpha(self.perfil.suavizado_factor)
             self.motor.zona_x_min = self.perfil.zona_activa_x_min
             self.motor.zona_x_max = self.perfil.zona_activa_x_max
@@ -357,7 +357,6 @@ class Dashboard(ctk.CTk):
             self.motor.zona_y_max = self.perfil.zona_activa_y_max
             self.motor.controlador_mouse.set_zona_muerta(self.perfil.zona_muerta_px)
             
-            # Variables de la UI
             self.motor.es_zurdo = self.var_zurdo.get()
             self.motor.umbral_pellizco = self.slider_umbral.get()
 
@@ -368,6 +367,14 @@ class Dashboard(ctk.CTk):
                     nuevo_mapeo[nombre_gesto] = accion
             self.motor.mapeo_gestos = nuevo_mapeo
 
+            # 2. NUEVO: Evaluar si hay que reiniciar la cámara física
+            texto_camara = self.combo_camara.get()
+            nuevo_id_camara = int(texto_camara.split(" ")[-1]) if texto_camara else 0
+            
+            # Si el ID cambió, le pedimos al motor que libere y reabra el puerto
+            if self.motor.perfil.id_camara != nuevo_id_camara:
+                self.motor.cambiar_camara(nuevo_id_camara)
+                
     def _guardar_perfil(self):
         texto_camara = self.combo_camara.get()
         id_camara = int(texto_camara.split(" ")[-1]) if texto_camara else 0
@@ -513,9 +520,10 @@ class Dashboard(ctk.CTk):
 
         self.after(33, self._actualizar_preview)
 
-    def _detectar_camaras(self, max_camaras=5):
+    def _detectar_camaras(self, max_camaras=6):
         camaras = []
         for i in range(max_camaras):
+            # Retiramos cv2.CAP_DSHOW para volver a detectar drivers virtuales
             cap = cv2.VideoCapture(i)
             if cap.isOpened():
                 camaras.append(f"Cámara {i}")
@@ -523,7 +531,7 @@ class Dashboard(ctk.CTk):
         if not camaras:
             camaras = ["Cámara 0"]
         return camaras
-
+        
     def _al_cerrar(self):
         self._detener_tracking()
         self.executor.shutdown(wait=False)

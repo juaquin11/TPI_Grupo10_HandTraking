@@ -69,9 +69,10 @@ class CapturaMano:
     def iniciar_camara(self):
         """Abre la webcam para comenzar a capturar video."""
         self.captura = cv2.VideoCapture(self.id_camara)
+        
         if not self.captura.isOpened():
             raise RuntimeError(f"No se pudo abrir la cámara con ID {self.id_camara}")
-
+        
     def leer_frame(self):
         """
         Lee un frame de la webcam.

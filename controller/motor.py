@@ -284,6 +284,21 @@ class MotorHandTracking:
 
         self.detener()
 
+    def cambiar_camara(self, nuevo_id):
+        """Libera la cámara actual y reinicia la captura con el nuevo ID."""
+        if self.captura is not None:
+            self.captura.liberar()  # Libera video y destruye MediaPipe
+        
+        self.perfil.id_camara = nuevo_id
+        
+        try:
+            # CLAVE: Instanciar CapturaMano desde cero para recargar MediaPipe
+            self.captura = CapturaMano(id_camara=nuevo_id)
+            self.captura.iniciar_camara()
+            print(f"[Motor] Cámara cambiada exitosamente al índice {nuevo_id}.")
+        except Exception as e:
+            print(f"[Motor] Error al cambiar cámara: {e}")
+
     def detener(self):
         """Detiene el tracking y libera recursos."""
         self.ejecutando = False
